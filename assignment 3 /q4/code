@@ -1,0 +1,255 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#define RED 0
+#define BLACK 1
+
+typedef struct RB {
+    int key;
+    int color;
+    struct RB *l, *r, *p;
+} RB;
+
+RB nil_node;
+RB *NIL = &nil_node;       /* every empty place is this one black node */
+RB *leftmost;              /* cached smallest node (Task 44) */
+long rotations = 0;
+
+void left_rotate(RB **root, RB *x)
+{
+    RB *y = x->r;
+    x->r = y->l;
+    if (y->l != NIL) y->l->p = x;
+    y->p = x->p;
+    if (x->p == NIL) *root = y;
+    else if (x == x->p->l) x->p->l = y;
+    else x->p->r = y;
+    y->l = x;
+    x->p = y;
+    rotations++;
+}
+
+void right_rotate(RB **root, RB *x)
+{
+    RB *y = x->l;
+    x->l = y->r;
+    if (y->r != NIL) y->r->p = x;
+    y->p = x->p;
+    if (x->p == NIL) *root = y;
+    else if (x == x->p->r) x->p->r = y;
+    else x->p->l = y;
+    y->r = x;
+    x->p = y;
+    rotations++;
+}
+
+void fixup(RB **root, RB *z)
+{
+    RB *y;
+    while (z->p->color == RED) {
+        if (z->p == z->p->p->l) {
+            y = z->p->p->r;                       /* uncle */
+            if (y->color == RED) {                /* uncle red: recolour */
+                z->p->color = BLACK;
+                y->color = BLACK;
+                z->p->p->color = RED;
+                z = z->p->p;
+            } else {
+                if (z == z->p->r) {               /* triangle: rotate to a line */
+                    z = z->p;
+                    left_rotate(root, z);
+                }
+                z->p->color = BLACK;              /* line: rotate grandparent */
+                z->p->p->color = RED;
+                right_rotate(root, z->p->p);
+            }
+        } else {
+            y = z->p->p->l;
+            if (y->color == RED) {
+                z->p->color = BLACK;
+                y->color = BLACK;
+                z->p->p->color = RED;
+                z = z->p->p;
+            } else {
+                if (z == z->p->l) {
+                    z = z->p;
+                    right_rotate(root, z);
+                }
+                z->p->color = BLACK;
+                z->p->p->color = RED;
+                left_rotate(root, z->p->p);
+            }
+        }
+    }
+    (*root)->color = BLACK;
+}
+
+RB *insert(RB *root, int key)
+{
+    RB *y = NIL, *x = root, *z;
+    while (x != NIL) {
+        y = x;
+        if (key == x->key) return root;           /* duplicate ignored */
+        x = key < x->key ? x->l : x->r;
+    }
+    z = (RB *)malloc(sizeof(RB));
+    z->key = key;
+    z->color = RED;
+    z->l = z->r = NIL;
+    z->p = y;
+    if (y == NIL) root = z;
+    else if (key < y->key) y->l = z;
+    else y->r = z;
+    if (leftmost == NIL || key < leftmost->key) leftmost = z;
+    fixup(&root, z);
+    return root;
+}
+
+/* checking function: returns the black height, or -1 if a property is broken */
+int black_height(RB *n)
+{
+    int a, b;
+    if (n == NIL) return 0;
+    if (n->color == RED && (n->l->color == RED || n->r->color == RED)) return -1;
+    a = black_height(n->l);
+    b = black_height(n->r);
+    if (a < 0 || b < 0 || a != b) return -1;
+    return a + (n->color == BLACK ? 1 : 0);
+}
+
+int valid(RB *root)
+{
+    if (root == NIL) return 1;
+    return root->color == BLACK && black_height(root) >= 0;
+}
+
+int height(RB *n)
+{
+    int a, b;
+    if (n == NIL) return 0;
+    a = height(n->l);
+    b = height(n->r);
+    return 1 + (a > b ? a : b);
+}
+
+void preorder(RB *n)
+{
+    if (n == NIL) return;
+    printf("%d%c ", n->key, n->color == RED ? 'R' : 'B');
+    preorder(n->l);
+    preorder(n->r);
+}
+
+void destroy(RB *n)
+{
+    if (n == NIL) return;
+    destroy(n->l);
+    destroy(n->r);
+    free(n);
+}
+
+/* ---------- small AVL tree, only to compare rotations and height ---------- */
+typedef struct AV {
+    int key, h;
+    struct AV *l, *r;
+} AV;
+long avl_rot = 0;
+
+int ht(AV *n) { return n ? n->h : 0; }
+int maxi(int a, int b) { return a > b ? a : b; }
+void fix(AV *n) { n->h = 1 + maxi(ht(n->l), ht(n->r)); }
+AV *rot_r(AV *y) { AV *x = y->l; y->l = x->r; x->r = y; fix(y); fix(x); avl_rot++; return x; }
+AV *rot_l(AV *x) { AV *y = x->r; x->r = y->l; y->l = x; fix(x); fix(y); avl_rot++; return y; }
+
+AV *avl_insert(AV *n, int key)
+{
+    int bal;
+    if (n == NULL) {
+        n = (AV *)malloc(sizeof(AV));
+        n->key = key;
+        n->h = 1;
+        n->l = n->r = NULL;
+        return n;
+    }
+    if (key < n->key) n->l = avl_insert(n->l, key);
+    else if (key > n->key) n->r = avl_insert(n->r, key);
+    else return n;
+    fix(n);
+    bal = ht(n->l) - ht(n->r);
+    if (bal > 1 && key < n->l->key) return rot_r(n);
+    if (bal < -1 && key > n->r->key) return rot_l(n);
+    if (bal > 1) { n->l = rot_l(n->l); return rot_r(n); }
+    if (bal < -1) { n->r = rot_r(n->r); return rot_l(n); }
+    return n;
+}
+
+void avl_destroy(AV *n)
+{
+    if (n == NULL) return;
+    avl_destroy(n->l);
+    avl_destroy(n->r);
+    free(n);
+}
+
+int main(void)
+{
+    int a[6] = {10, 20, 30, 15, 25, 5};
+    int i, j, t, n, ok;
+    int *keys;
+    RB *root;
+    AV *av;
+
+    nil_node.color = BLACK;
+    nil_node.l = nil_node.r = nil_node.p = NIL;
+    nil_node.key = 0;
+
+    printf("Task 38: insert 10 20 30 15 25 5 (R = red, B = black)\n");
+    root = NIL;
+    leftmost = NIL;
+    for (i = 0; i < 6; i++) {
+        root = insert(root, a[i]);
+        printf("after %2d: ", a[i]);
+        preorder(root);
+        printf("  (rotations so far %ld)\n", rotations);
+    }
+    printf("Task 40: smallest key = %d (cached leftmost node)\n", leftmost->key);
+    printf("Five properties hold: %s\n", valid(root) ? "yes" : "NO");
+    destroy(root);
+
+    n = 10000;
+    keys = (int *)malloc(n * sizeof(int));
+    for (i = 0; i < n; i++) keys[i] = i + 1;
+    srand(1);
+    for (i = n - 1; i > 0; i--) {
+        j = rand() % (i + 1);
+        t = keys[i]; keys[i] = keys[j]; keys[j] = t;
+    }
+
+    printf("\nTasks 45-47: 10000 random insertions\n");
+    root = NIL; leftmost = NIL; rotations = 0; ok = 1;
+    av = NULL; avl_rot = 0;
+    for (i = 0; i < n; i++) {
+        root = insert(root, keys[i]);
+        if (!valid(root)) ok = 0;              /* check after every operation */
+        av = avl_insert(av, keys[i]);
+    }
+    printf("Red-black: rotations %ld, height %d, properties valid after every insertion: %s\n",
+           rotations, height(root), ok ? "yes" : "NO");
+    printf("AVL      : rotations %ld, height %d\n", avl_rot, ht(av));
+    destroy(root);
+    avl_destroy(av);
+    free(keys);
+
+    printf("\nTask 48: 100000 keys in increasing order\n");
+    root = NIL; leftmost = NIL; rotations = 0;
+    av = NULL; avl_rot = 0;
+    for (i = 1; i <= 100000; i++) {
+        root = insert(root, i);
+        av = avl_insert(av, i);
+    }
+    printf("Red-black: height %d, rotations %ld, valid: %s\n", height(root), rotations, valid(root) ? "yes" : "NO");
+    printf("AVL      : height %d, rotations %ld\n", ht(av), avl_rot);
+    destroy(root);
+    avl_destroy(av);
+    return 0;
+}
