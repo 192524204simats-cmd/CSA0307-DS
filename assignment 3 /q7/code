@@ -1,0 +1,58 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Trie {
+    struct Trie *child[26];
+    int words;      /* number of words passing through here */
+    int end;        /* 1 if a word ends here */
+} Trie;
+
+Trie *node(void)
+{
+    return (Trie *)calloc(1, sizeof(Trie));
+}
+
+void insert(Trie *t, const char *w)
+{
+    int i;
+    for (; *w; w++) {
+        i = *w - 'a';
+        if (t->child[i] == NULL)
+            t->child[i] = node();       /* create the node if it is missing */
+        t = t->child[i];
+        t->words++;                     /* one more word passes here */
+    }
+    t->end = 1;                         /* a word ends at the last node */
+}
+
+int count_prefix(const Trie *t, const char *p)
+{
+    for (; *p; p++) {
+        t = t->child[*p - 'a'];
+        if (t == NULL) return 0;        /* a letter is missing */
+    }
+    return t->words;
+}
+
+void destroy(Trie *t)
+{
+    int i;
+    if (t == NULL) return;
+    for (i = 0; i < 26; i++) destroy(t->child[i]);
+    free(t);
+}
+
+int main(void)
+{
+    const char *contacts[6] = {"anand", "anitha", "anu", "arun", "bala", "anusuya"};
+    const char *typed[5] = {"a", "an", "anu", "b", "z"};
+    int i;
+    Trie *root = node();
+
+    for (i = 0; i < 6; i++) insert(root, contacts[i]);
+    for (i = 0; i < 5; i++)
+        printf("%s:%d ", typed[i], count_prefix(root, typed[i]));
+    printf("\n");
+    destroy(root);
+    return 0;
+}
