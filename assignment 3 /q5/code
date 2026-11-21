@@ -1,0 +1,236 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node {
+    int key, h;                    /* h is used only by the AVL tree */
+    struct Node *l, *r;
+} Node;
+
+/* ---------------- splay tree (bottom-up) ---------------- */
+Node *path_buf[5000];              /* nodes from the root down to the accessed node */
+
+/* brings key k (or the last node on its search path) to the root */
+Node *splay(Node *root, int k)
+{
+    Node *t = root, *x, *p, *g, *gg;
+    int m = -1, idx;
+
+    if (root == NULL) return NULL;
+    while (t != NULL) {                              /* walk down and remember the path */
+        path_buf[++m] = t;
+        if (k == t->key) break;
+        t = (k < t->key) ? t->l : t->r;
+    }
+    x = path_buf[m];
+    idx = m;
+    while (idx > 0) {
+        p = path_buf[idx - 1];
+        if (idx == 1) {                              /* zig */
+            if (x == p->l) { p->l = x->r; x->r = p; }
+            else           { p->r = x->l; x->l = p; }
+            root = x;
+            idx = 0;
+        } else {
+            g = path_buf[idx - 2];
+            gg = (idx >= 3) ? path_buf[idx - 3] : NULL;
+            if (p == g->l && x == p->l) {            /* zig-zig, left */
+                g->l = p->r; p->r = g;
+                p->l = x->r; x->r = p;
+            } else if (p == g->r && x == p->r) {     /* zig-zig, right */
+                g->r = p->l; p->l = g;
+                p->r = x->l; x->l = p;
+            } else if (p == g->l) {                  /* zig-zag: p is left, x is right */
+                p->r = x->l; g->l = x->r;
+                x->l = p; x->r = g;
+            } else {                                 /* zig-zag: p is right, x is left */
+                p->l = x->r; g->r = x->l;
+                x->r = p; x->l = g;
+            }
+            if (gg == NULL) root = x;
+            else if (gg->l == g) gg->l = x;
+            else gg->r = x;
+            idx = idx - 2;
+            path_buf[idx] = x;
+        }
+    }
+    return root;
+}
+
+Node *bst_insert(Node *t, int k)
+{
+    if (t == NULL) {
+        t = (Node *)calloc(1, sizeof(Node));
+        t->key = k;
+        return t;
+    }
+    if (k < t->key) t->l = bst_insert(t->l, k);
+    else if (k > t->key) t->r = bst_insert(t->r, k);
+    return t;
+}
+
+/* number of nodes visited while searching for k */
+int visits(Node *t, int k)
+{
+    int c = 0;
+    while (t != NULL) {
+        c++;
+        if (k == t->key) break;
+        t = (k < t->key) ? t->l : t->r;
+    }
+    return c;
+}
+
+void preorder(Node *t)
+{
+    if (t == NULL) return;
+    printf("%d ", t->key);
+    preorder(t->l);
+    preorder(t->r);
+}
+
+void print_tree(Node *t, int depth)       /* right side printed on top */
+{
+    int i;
+    if (t == NULL) return;
+    print_tree(t->r, depth + 1);
+    for (i = 0; i < depth; i++) printf("    ");
+    printf("%d\n", t->key);
+    print_tree(t->l, depth + 1);
+}
+
+void destroy(Node *t)
+{
+    if (t == NULL) return;
+    destroy(t->l);
+    destroy(t->r);
+    free(t);
+}
+
+/* ---------------- AVL tree (for comparison) ---------------- */
+int ht(Node *n) { return n ? n->h : 0; }
+int maxi(int a, int b) { return a > b ? a : b; }
+void fix(Node *n) { n->h = 1 + maxi(ht(n->l), ht(n->r)); }
+
+Node *avl_rot_right(Node *y)
+{
+    Node *x = y->l;
+    y->l = x->r;
+    x->r = y;
+    fix(y);
+    fix(x);
+    return x;
+}
+
+Node *avl_rot_left(Node *x)
+{
+    Node *y = x->r;
+    x->r = y->l;
+    y->l = x;
+    fix(x);
+    fix(y);
+    return y;
+}
+
+Node *avl_insert(Node *n, int k)
+{
+    int bal;
+    if (n == NULL) {
+        n = (Node *)calloc(1, sizeof(Node));
+        n->key = k;
+        n->h = 1;
+        return n;
+    }
+    if (k < n->key) n->l = avl_insert(n->l, k);
+    else if (k > n->key) n->r = avl_insert(n->r, k);
+    else return n;
+    fix(n);
+    bal = ht(n->l) - ht(n->r);
+    if (bal > 1 && k < n->l->key) return avl_rot_right(n);
+    if (bal < -1 && k > n->r->key) return avl_rot_left(n);
+    if (bal > 1) { n->l = avl_rot_left(n->l); return avl_rot_right(n); }
+    if (bal < -1) { n->r = avl_rot_right(n->r); return avl_rot_left(n); }
+    return n;
+}
+
+/* ---------------- main ---------------- */
+int main(void)
+{
+    int ex[7] = {5, 3, 8, 2, 4, 6, 9};
+    int keys[1000], popular[50];
+    int n = 1000, accesses = 10000, pop = 50;
+    int i, j, t, w, k, v, worst;
+    long s_sum, a_sum, sum;
+    Node *ex_tree = NULL, *sp = NULL, *av = NULL;
+
+    /* Task 50: example tree, splay 3 and then 9 */
+    for (i = 0; i < 7; i++) ex_tree = bst_insert(ex_tree, ex[i]);
+    printf("Task 50: start, preorder: ");
+    preorder(ex_tree);
+    printf("\n");
+    ex_tree = splay(ex_tree, 3);
+    printf("after splay(3), preorder: ");
+    preorder(ex_tree);
+    printf("\n");
+    print_tree(ex_tree, 0);
+    ex_tree = splay(ex_tree, 9);
+    printf("after splay(9), preorder: ");
+    preorder(ex_tree);
+    printf("\n");
+    print_tree(ex_tree, 0);
+    destroy(ex_tree);
+
+    /* build the trees with 1000 keys in random order */
+    for (i = 0; i < n; i++) keys[i] = i + 1;
+    srand(1);
+    for (i = n - 1; i > 0; i--) {
+        j = rand() % (i + 1);
+        t = keys[i]; keys[i] = keys[j]; keys[j] = t;
+    }
+    for (i = 0; i < n; i++) {
+        sp = bst_insert(sp, keys[i]);
+        av = avl_insert(av, keys[i]);
+    }
+    for (i = 0; i < pop; i++) popular[i] = keys[i];
+
+    /* Tasks 52, 57, 58: skewed workload (w = 0) and uniform workload (w = 1) */
+    printf("\n10000 accesses on 1000 keys\n");
+    for (w = 0; w < 2; w++) {
+        s_sum = 0; a_sum = 0; worst = 0;
+        for (i = 0; i < accesses; i++) {
+            if (w == 0 && rand() % 100 < 80) k = popular[rand() % pop];
+            else k = keys[rand() % n];
+            v = visits(sp, k);
+            s_sum += v;
+            if (v > worst) worst = v;
+            sp = splay(sp, k);
+            a_sum += visits(av, k);
+        }
+        printf("%s: splay average %.2f (worst single access %d), AVL average %.2f\n",
+               w == 0 ? "skewed " : "uniform", (double)s_sum / accesses, worst, (double)a_sum / accesses);
+    }
+
+    /* Task 59: sorted access */
+    sum = 0; worst = 0;
+    for (k = 1; k <= n; k++) {
+        v = visits(sp, k);
+        sum += v;
+        if (v > worst) worst = v;
+        sp = splay(sp, k);
+    }
+    printf("sorted access 1..1000: average %.2f, worst %d\n", (double)sum / n, worst);
+
+    /* Task 60: root after each of the first ten accesses on a fresh tree */
+    destroy(sp);
+    sp = NULL;
+    for (i = 0; i < n; i++) sp = bst_insert(sp, keys[i]);
+    printf("\nRoot after the first ten accesses:\n");
+    for (i = 0; i < 10; i++) {
+        k = popular[rand() % pop];
+        sp = splay(sp, k);
+        printf("access %4d -> root %4d\n", k, sp->key);
+    }
+
+    destroy(sp);
+    destroy(av);
+    return 0;
+}
