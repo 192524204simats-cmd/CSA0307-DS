@@ -1,0 +1,260 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+/* Compressed trie (radix tree): an edge holds a whole string, not one letter.
+   Children are kept in a linked list sorted by first letter. */
+typedef struct RNode {
+    char *label;                 /* the string on the edge that leads to this node */
+    int end;                     /* 1 if a word ends here */
+    struct RNode *child;         /* first child */
+    struct RNode *sibling;       /* next child of the same parent */
+} RNode;
+
+long rnodes = 0;                 /* number of nodes (with root) */
+long rbytes = 0;                 /* bytes used: node structs + label strings */
+
+RNode *new_rnode(const char *label, int len, int end)
+{
+    RNode *n = (RNode *)malloc(sizeof(RNode));
+    n->label = (char *)malloc(len + 1);
+    memcpy(n->label, label, len);
+    n->label[len] = 0;
+    n->end = end;
+    n->child = NULL;
+    n->sibling = NULL;
+    rnodes++;
+    rbytes += (long)sizeof(RNode) + len + 1;
+    return n;
+}
+
+void add_child(RNode *parent, RNode *c)          /* keeps the list sorted */
+{
+    RNode **pp = &parent->child;
+    while (*pp != NULL && (*pp)->label[0] < c->label[0]) pp = &(*pp)->sibling;
+    c->sibling = *pp;
+    *pp = c;
+}
+
+void insert(RNode *t, const char *w)
+{
+    RNode **pp, *c, *mid, *leaf;
+    char *rest;
+    int k, l;
+
+    if (*w == 0) { t->end = 1; return; }
+    pp = &t->child;
+    while (*pp != NULL && (*pp)->label[0] < *w) pp = &(*pp)->sibling;
+    c = *pp;
+    if (c == NULL || c->label[0] != *w) {        /* no edge starts with this letter */
+        leaf = new_rnode(w, (int)strlen(w), 1);
+        leaf->sibling = c;
+        *pp = leaf;
+        return;
+    }
+    k = 0;                                       /* length of the common part */
+    while (c->label[k] != 0 && w[k] != 0 && c->label[k] == w[k]) k++;
+    l = (int)strlen(c->label);
+    if (k == l) { insert(c, w + k); return; }    /* the whole edge matches: go down */
+
+    mid = new_rnode(c->label, k, 0);             /* split the edge after k letters */
+    rest = (char *)malloc(l - k + 1);
+    memcpy(rest, c->label + k, l - k + 1);
+    free(c->label);
+    c->label = rest;
+    rbytes -= k;
+    mid->sibling = c->sibling;
+    c->sibling = NULL;
+    mid->child = c;
+    *pp = mid;
+    if (w[k] == 0) {
+        mid->end = 1;
+    } else {
+        leaf = new_rnode(w + k, (int)strlen(w + k), 1);
+        add_child(mid, leaf);
+    }
+}
+
+/* Task 79: exact look-up */
+int search(const RNode *t, const char *w)
+{
+    const RNode *c;
+    int l;
+    for (;;) {
+        if (*w == 0) return t->end;
+        c = t->child;
+        while (c != NULL && c->label[0] < *w) c = c->sibling;
+        if (c == NULL || c->label[0] != *w) return 0;
+        l = (int)strlen(c->label);
+        if (strncmp(c->label, w, l) != 0) return 0;
+        w += l;
+        t = c;
+    }
+}
+
+/* walks the words below t in alphabetical order (buf holds the path up to t).
+   lo and hi may be NULL. Only the first "limit" words are printed, all are counted. */
+void walk(const RNode *t, char *buf, int len, const char *lo, const char *hi, int *count, int limit)
+{
+    const RNode *c;
+    int l;
+    buf[len] = 0;
+    if (hi != NULL && strcmp(buf, hi) > 0) return;      /* everything below is too big */
+    if (t->end && (lo == NULL || strcmp(buf, lo) >= 0)) {
+        if (*count < limit) printf("%s ", buf);
+        (*count)++;
+    }
+    for (c = t->child; c != NULL; c = c->sibling) {
+        l = (int)strlen(c->label);
+        memcpy(buf + len, c->label, l);
+        walk(c, buf, len + l, lo, hi, count, limit);
+    }
+}
+
+/* Task 79: autocomplete. Returns the number of words with the prefix. */
+int autocomplete(const RNode *t, const char *p, int limit, int verbose)
+{
+    char buf[128];
+    int len = 0, count = 0, l, pl;
+    const RNode *c;
+
+    if (verbose) printf("autocomplete \"%s\": ", p);
+    while (*p != 0) {
+        c = t->child;
+        while (c != NULL && c->label[0] < *p) c = c->sibling;
+        if (c == NULL || c->label[0] != *p) goto done;
+        l = (int)strlen(c->label);
+        pl = (int)strlen(p);
+        if (strncmp(c->label, p, pl < l ? pl : l) != 0) goto done;
+        memcpy(buf + len, c->label, l);
+        len += l;
+        t = c;
+        if (pl <= l) break;                      /* the prefix ends inside this edge */
+        p += l;
+    }
+    walk(t, buf, len, NULL, NULL, &count, verbose ? limit : 0);
+done:
+    if (verbose) printf("(%d words)\n", count);
+    return count;
+}
+
+void destroy(RNode *t)
+{
+    if (t == NULL) return;
+    destroy(t->child);
+    destroy(t->sibling);
+    free(t->label);
+    free(t);
+}
+
+/* ---- helpers for the test data ---- */
+char **make_words(int n, long *array_bytes)
+{
+    char **w = (char **)malloc(n * sizeof(char *));
+    int i, j, len;
+    *array_bytes = 0;
+    for (i = 0; i < n; i++) {
+        len = 3 + rand() % 6;
+        w[i] = (char *)malloc(len + 1);
+        for (j = 0; j < len; j++) w[i][j] = (char)('a' + rand() % 26);
+        w[i][len] = 0;
+        *array_bytes += len + 1 + (long)sizeof(char *);
+    }
+    return w;
+}
+
+void free_words(char **w, int n)
+{
+    int i;
+    for (i = 0; i < n; i++) free(w[i]);
+    free(w);
+}
+
+int cmp_str(const void *a, const void *b)
+{
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+/* nodes of a plain trie (26 pointers, 216 bytes each) for the same words, counted without building it */
+long plain_trie_nodes(char **w, int n)
+{
+    char **s = (char **)malloc(n * sizeof(char *));
+    long total = 1;                              /* the root */
+    int i, k;
+    memcpy(s, w, n * sizeof(char *));
+    qsort(s, n, sizeof(char *), cmp_str);
+    for (i = 0; i < n; i++) {
+        k = 0;
+        if (i > 0)
+            while (s[i][k] != 0 && s[i - 1][k] != 0 && s[i][k] == s[i - 1][k]) k++;
+        total += (long)strlen(s[i]) - k;
+    }
+    free(s);
+    return total;
+}
+
+int main(void)
+{
+    int sizes[2] = {1000, 200000};
+    int s, i, n, found, printed, calls;
+    long array_bytes, plain, reps, j, sum;
+    double ns;
+    char **w;
+    char buf[128], prefix[3];
+    clock_t t0;
+    RNode *root;
+
+    srand(1);
+    for (s = 0; s < 2; s++) {
+        n = sizes[s];
+        w = make_words(n, &array_bytes);
+        rnodes = 0;
+        rbytes = 0;
+        root = new_rnode("", 0, 0);
+        for (i = 0; i < n; i++) insert(root, w[i]);
+
+        printf("===== %d random words =====\n", n);
+        found = 0;
+        for (i = 0; i < n; i++) found += search(root, w[i]);
+        printf("look-up of all words: %d of %d found; misspelt word found: %d\n", found, n, search(root, "qqqqqqqqq"));
+
+        if (n == 1000) {
+            autocomplete(root, "ah", 10, 1);
+            autocomplete(root, "cv", 10, 1);
+            printf("range listing \"cvz\" to \"dikex\": ");
+            printed = 0;
+            walk(root, buf, 0, "cvz", "dikex", &printed, 5);
+            printf("... (%d words in total)\n", printed);
+        }
+
+        plain = plain_trie_nodes(w, n);
+        printf("compressed trie: %ld nodes, %ld bytes\n", rnodes, rbytes);
+        printf("plain trie     : %ld nodes, %ld bytes (216 bytes per node)\n", plain, plain * 216);
+        printf("sorted array   : %ld bytes\n", array_bytes);
+
+        sum = 0;
+        reps = (n == 1000) ? 1000 : 10;
+        t0 = clock();
+        for (j = 0; j < reps; j++)
+            for (i = 0; i < n; i++) sum += search(root, w[i]);
+        ns = (double)(clock() - t0) * 1e9 / CLOCKS_PER_SEC / (double)(reps * n);
+        printf("time for one look-up: about %.1f ns (checksum %ld)\n", ns, sum);
+
+        calls = 20000;
+        sum = 0;
+        t0 = clock();
+        for (i = 0; i < calls; i++) {
+            prefix[0] = w[i % n][0];
+            prefix[1] = w[i % n][1];
+            prefix[2] = 0;
+            sum += autocomplete(root, prefix, 0, 0);
+        }
+        ns = (double)(clock() - t0) * 1e9 / CLOCKS_PER_SEC / (double)calls;
+        printf("time to find all words with a 2-letter prefix: about %.0f ns (%.4f ms) (checksum %ld)\n\n", ns, ns / 1e6, sum);
+
+        destroy(root);
+        free_words(w, n);
+    }
+    return 0;
+}
