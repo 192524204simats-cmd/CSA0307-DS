@@ -1,0 +1,85 @@
+/* Task 4.2 and 4.3 - evidence for the original quicksort and the repaired sorts */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define N 10000
+long cmp;
+int depth, maxdepth;
+
+void swap(int *a, int *b) { int t = *a; *a = *b; *b = t; }
+
+/* ---------- original program (last element as pivot) ---------- */
+void quick(int a[], int lo, int hi)
+{
+    if (lo >= hi) return;
+    depth++; if (depth > maxdepth) maxdepth = depth;
+    int p = a[hi], i = lo - 1;
+    for (int j = lo; j < hi; j++) { cmp++; if (a[j] <= p) { i++; swap(&a[i], &a[j]); } }
+    swap(&a[i + 1], &a[hi]);
+    quick(a, lo, i);
+    quick(a, i + 2, hi);
+    depth--;
+}
+
+/* ---------- repaired: median-of-three, smaller part first, loop on larger ---------- */
+void quick2(int a[], int lo, int hi)
+{
+    while (lo < hi) {
+        int mid = lo + (hi - lo) / 2;
+        /* order a[lo], a[mid], a[hi]; put the median at hi to be the pivot */
+        cmp += 3;
+        if (a[mid] < a[lo]) swap(&a[mid], &a[lo]);
+        if (a[hi] < a[lo]) swap(&a[hi], &a[lo]);
+        if (a[mid] < a[hi]) swap(&a[mid], &a[hi]);
+        int p = a[hi], i = lo - 1;
+        for (int j = lo; j < hi; j++) { cmp++; if (a[j] <= p) { i++; swap(&a[i], &a[j]); } }
+        swap(&a[i + 1], &a[hi]);
+        int left = (i - lo), right = (hi - (i + 2));
+        depth++; if (depth > maxdepth) maxdepth = depth;
+        if (left < right) { quick2(a, lo, i); lo = i + 2; }
+        else              { quick2(a, i + 2, hi); hi = i; }
+        depth--;
+    }
+}
+
+/* ---------- stable merge sort ---------- */
+void msort(int a[], int t[], int lo, int hi)
+{
+    if (lo >= hi) return;
+    int mid = lo + (hi - lo) / 2;
+    msort(a, t, lo, mid); msort(a, t, mid + 1, hi);
+    int i = lo, j = mid + 1, k = lo;
+    while (i <= mid && j <= hi) { cmp++; t[k++] = (a[i] <= a[j]) ? a[i++] : a[j++]; }
+    while (i <= mid) t[k++] = a[i++];
+    while (j <= hi)  t[k++] = a[j++];
+    memcpy(a + lo, t + lo, (hi - lo + 1) * sizeof(int));
+}
+
+void fill(int a[], int kind)
+{
+    srand(11);
+    for (int i = 0; i < N; i++) {
+        if (kind == 0) a[i] = rand() % 101;           /* random marks 0..100 */
+        else if (kind == 1) a[i] = i * 101 / N;       /* already sorted */
+        else if (kind == 2) a[i] = 100 - i * 101 / N; /* reverse sorted */
+        else a[i] = 50;                               /* all equal */
+    }
+}
+
+int main(void)
+{
+    const char *names[] = {"random", "sorted", "reverse", "all equal"};
+    static int a[N], t[N];
+    printf("%-10s | %-26s | %-26s | %-14s\n", "input", "original quick (cmp / depth)",
+           "repaired quick (cmp / depth)", "merge (cmp)");
+    for (int k = 0; k < 4; k++) {
+        fill(a, k); cmp = 0; depth = maxdepth = 0; quick(a, 0, N - 1);
+        long c1 = cmp; int d1 = maxdepth;
+        fill(a, k); cmp = 0; depth = maxdepth = 0; quick2(a, 0, N - 1);
+        long c2 = cmp; int d2 = maxdepth;
+        fill(a, k); cmp = 0; msort(a, t, 0, N - 1);
+        printf("%-10s | %12ld / %-11d | %12ld / %-11d | %ld\n", names[k], c1, d1, c2, d2, cmp);
+    }
+    return 0;
+}
