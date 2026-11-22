@@ -1,0 +1,7 @@
+#include <stdio.h>
+int main(void){
+ double a[]={0.5,0.75,0.9};
+ printf("alpha  chain_succ chain_unsucc  linear_succ linear_unsucc\n");
+ for(int i=0;i<3;i++){double x=a[i];
+  printf("%.2f   %.3f      %.3f        %.3f       %.3f\n",x,1+x/2,x,0.5*(1+1/(1-x)),0.5*(1+1/((1-x)*(1-x))));}
+ return 0;}
