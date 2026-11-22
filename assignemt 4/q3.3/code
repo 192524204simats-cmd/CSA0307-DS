@@ -1,0 +1,45 @@
+#include <stdio.h>
+#include <stdlib.h>
+long swp;
+void sift_down(int a[], int n, int i)
+{
+    for (;;) {
+        int l = 2 * i + 1, r = l + 1, s = i;
+        if (l < n && a[l] < a[s]) s = l;
+        if (r < n && a[r] < a[s]) s = r;
+        if (s == i) return;
+        int t = a[i]; a[i] = a[s]; a[s] = t; swp++;
+        i = s;
+    }
+}
+void sift_up(int a[], int i)
+{
+    while (i > 0) {
+        int p = (i - 1) / 2;
+        if (a[p] <= a[i]) break;
+        int t = a[p]; a[p] = a[i]; a[i] = t; swp++;
+        i = p;
+    }
+}
+int main(void)
+{
+    int sizes[] = {1000, 10000, 100000, 1000000};
+    printf("%8s | %-27s | %-27s\n", "n", "random input (build / insert)", "worst input (build / insert)");
+    for (int s = 0; s < 4; s++) {
+        int n = sizes[s];
+        int *a = malloc(n * sizeof(int)), *b = malloc(n * sizeof(int));
+        long r[2], w[2];
+        for (int kind = 0; kind < 2; kind++) {
+            srand(7);
+            for (int i = 0; i < n; i++) a[i] = b[i] = kind == 0 ? rand() : n - i;  /* decreasing = worst for a min-heap */
+            swp = 0; for (int i = n / 2 - 1; i >= 0; i--) sift_down(a, n, i);
+            long x = swp;
+            swp = 0; for (int i = 1; i < n; i++) sift_up(b, i);
+            long y = swp;
+            if (kind == 0) { r[0] = x; r[1] = y; } else { w[0] = x; w[1] = y; }
+        }
+        printf("%8d | %11ld / %-13ld | %11ld / %-13ld\n", n, r[0], r[1], w[0], w[1]);
+        free(a); free(b);
+    }
+    return 0;
+}
