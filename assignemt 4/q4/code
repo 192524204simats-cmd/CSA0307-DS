@@ -1,0 +1,94 @@
+/* Task 1.2 - compare hash functions on 100,000 registration numbers */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <time.h>
+
+#define N 100000
+#define BAD_SIZE 1000
+#define GOOD_SIZE 100003            /* prime, load factor about 1.0 */
+
+static char regs[N][12];
+
+/* original function from the question */
+unsigned hash_bad(const char *reg) { return (reg[0] + reg[1]) % 1000; }
+
+/* polynomial rolling hash over every character */
+unsigned hash_poly(const char *s)
+{
+    unsigned h = 0;
+    while (*s) h = h * 31 + (unsigned char)*s++;
+    return h % GOOD_SIZE;
+}
+
+/* FNV-1a, 32 bit */
+unsigned hash_fnv(const char *s)
+{
+    unsigned h = 2166136261u;
+    while (*s) { h ^= (unsigned char)*s++; h *= 16777619u; }
+    return h % GOOD_SIZE;
+}
+
+/* multiplication method: h = floor(M * frac(k * A)), A = 0.618... */
+unsigned hash_mult(const char *s)
+{
+    unsigned k = 0;                      /* number formed from the registration */
+    while (*s) k = k * 131 + (unsigned char)*s++;
+    double x = k * 0.6180339887498949;
+    x -= floor(x);
+    return (unsigned)(GOOD_SIZE * x);
+}
+
+/* same polynomial hash but with the poor table size 1000 */
+unsigned hash_poly1000(const char *s)
+{
+    unsigned h = 0;
+    while (*s) h = h * 31 + (unsigned char)*s++;
+    return h % 1000;
+}
+
+static void generate(void)
+{
+    const char *states[] = {"TN","KA","KL","AP","MH","DL","TS","GJ"};
+    srand(2026);
+    for (int i = 0; i < N; i++) {
+        /* 80 percent of the vehicles belong to one state (TN) */
+        int r = rand() % 100;
+        const char *st = (r < 80) ? "TN" : states[1 + rand() % 7];
+        sprintf(regs[i], "%s%02d%c%c%04d", st, 1 + rand() % 99,
+                'A' + rand() % 26, 'A' + rand() % 26, rand() % 10000);
+    }
+}
+
+static void test(const char *name, unsigned (*f)(const char *), int size)
+{
+    int *cnt = calloc(size, sizeof(int));
+    for (int i = 0; i < N; i++) cnt[f(regs[i])]++;
+    int longest = 0, used = 0;
+    for (int b = 0; b < size; b++) {
+        if (cnt[b] > longest) longest = cnt[b];
+        if (cnt[b]) used++;
+    }
+    /* time: hash all 100,000 keys 50 times */
+    clock_t t0 = clock();
+    volatile unsigned sink = 0;
+    for (int rep = 0; rep < 50; rep++)
+        for (int i = 0; i < N; i++) sink += f(regs[i]);
+    double ns = (double)(clock() - t0) / CLOCKS_PER_SEC * 1e9 / (50.0 * N);
+    printf("%s\n  size=%d used=%d longest=%d avg(all)=%.2f avg(used)=%.2f time=%.1f ns/hash\n",
+           name, size, used, longest, (double)N / size, (double)N / used, ns);
+    free(cnt);
+}
+
+int main(void)
+{
+    generate();
+    printf("sample keys: %s %s %s\n", regs[0], regs[1], regs[2]);
+    test("original (reg[0]+reg[1])", hash_bad, BAD_SIZE);
+    test("polynomial, size 1000", hash_poly1000, 1000);
+    test("polynomial, size 100003", hash_poly, GOOD_SIZE);
+    test("multiplication method", hash_mult, GOOD_SIZE);
+    test("FNV-1a", hash_fnv, GOOD_SIZE);
+    return 0;
+}
