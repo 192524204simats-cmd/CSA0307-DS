@@ -1,0 +1,127 @@
+#define _POSIX_C_SOURCE 199309L
+/* Task 5.1 - six sorting algorithms: time and comparisons */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+long cmp;
+static void swap(int *a, int *b) { int t = *a; *a = *b; *b = t; }
+
+void bubble(int a[], int n)
+{
+    for (int i = 0; i < n - 1; i++) {
+        int swapped = 0;
+        for (int j = 0; j < n - 1 - i; j++) {
+            cmp++;
+            if (a[j] > a[j + 1]) { swap(&a[j], &a[j + 1]); swapped = 1; }
+        }
+        if (!swapped) break;
+    }
+}
+void insertion(int a[], int n)
+{
+    for (int i = 1; i < n; i++) {
+        int key = a[i], j = i - 1;
+        while (j >= 0) { cmp++; if (a[j] > key) { a[j + 1] = a[j]; j--; } else break; }
+        a[j + 1] = key;
+    }
+}
+void selection(int a[], int n)
+{
+    for (int i = 0; i < n - 1; i++) {
+        int m = i;
+        for (int j = i + 1; j < n; j++) { cmp++; if (a[j] < a[m]) m = j; }
+        if (m != i) swap(&a[i], &a[m]);
+    }
+}
+static void merge(int a[], int t[], int lo, int mid, int hi)
+{
+    int i = lo, j = mid + 1, k = lo;
+    while (i <= mid && j <= hi) { cmp++; t[k++] = (a[i] <= a[j]) ? a[i++] : a[j++]; }
+    while (i <= mid) t[k++] = a[i++];
+    while (j <= hi)  t[k++] = a[j++];
+    memcpy(a + lo, t + lo, (size_t)(hi - lo + 1) * sizeof(int));
+}
+static void msort(int a[], int t[], int lo, int hi)
+{
+    if (lo >= hi) return;
+    int mid = lo + (hi - lo) / 2;
+    msort(a, t, lo, mid); msort(a, t, mid + 1, hi); merge(a, t, lo, mid, hi);
+}
+void mergesort_(int a[], int n) { int *t = malloc((size_t)n * sizeof(int)); msort(a, t, 0, n - 1); free(t); }
+
+static void quick(int a[], int lo, int hi)      /* median-of-three, smaller part first */
+{
+    while (lo < hi) {
+        int mid = lo + (hi - lo) / 2;
+        cmp += 3;
+        if (a[mid] < a[lo]) swap(&a[mid], &a[lo]);
+        if (a[hi] < a[lo]) swap(&a[hi], &a[lo]);
+        if (a[mid] < a[hi]) swap(&a[mid], &a[hi]);
+        int p = a[hi], i = lo - 1;
+        for (int j = lo; j < hi; j++) { cmp++; if (a[j] <= p) { i++; swap(&a[i], &a[j]); } }
+        swap(&a[i + 1], &a[hi]);
+        if (i - lo < hi - (i + 2)) { quick(a, lo, i); lo = i + 2; }
+        else                       { quick(a, i + 2, hi); hi = i; }
+    }
+}
+void quicksort_(int a[], int n) { quick(a, 0, n - 1); }
+
+static void sift(int a[], int n, int i)
+{
+    for (;;) {
+        int l = 2 * i + 1, r = l + 1, b = i;
+        if (l < n) { cmp++; if (a[l] > a[b]) b = l; }
+        if (r < n) { cmp++; if (a[r] > a[b]) b = r; }
+        if (b == i) return;
+        swap(&a[i], &a[b]); i = b;
+    }
+}
+void heapsort_(int a[], int n)
+{
+    for (int i = n / 2 - 1; i >= 0; i--) sift(a, n, i);
+    for (int e = n - 1; e > 0; e--) { swap(&a[0], &a[e]); sift(a, e, 0); }
+}
+
+typedef void (*sorter)(int[], int);
+
+static void make(int a[], int n, int kind)
+{
+    srand(5);
+    for (int i = 0; i < n; i++)
+        a[i] = (kind == 0) ? rand() % 100000 : (kind == 1) ? i : n - i;
+}
+
+int main(void)
+{
+    const char *names[] = {"Bubble", "Insertion", "Selection", "Merge", "Quick", "Heap"};
+    sorter fn[] = {bubble, insertion, selection, mergesort_, quicksort_, heapsort_};
+    const char *kinds[] = {"random", "sorted", "reverse"};
+    int sizes[] = {1000, 100000, 1000000};
+
+    printf("%-10s %-8s %-9s %14s %12s\n", "algorithm", "n", "input", "comparisons", "time(ms)");
+    for (int s = 0; s < 3; s++) {
+        int n = sizes[s];
+        int *a = malloc((size_t)n * sizeof(int));
+        for (int k = 0; k < 3; k++)
+            for (int f = 0; f < 6; f++) {
+                if (f < 3 && n > 100000) {               /* O(n^2) at 1,000,000 not run */
+                    printf("%-10s %-8d %-9s %14s %12s\n", names[f], n, kinds[k], "not run", "not run");
+                    continue;
+                }
+                make(a, n, k);
+                cmp = 0;
+                struct timespec t0, t1;
+                clock_gettime(CLOCK_MONOTONIC, &t0);
+                fn[f](a, n);
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                double ms = (t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+                for (int i = 1; i < n; i++) if (a[i - 1] > a[i]) { printf("NOT SORTED\n"); return 1; }
+                printf("%-10s %-8d %-9s %14ld %12.2f\n", names[f], n, kinds[k], cmp, ms);
+                fflush(stdout);
+            }
+        free(a);
+    }
+    return 0;
+}
