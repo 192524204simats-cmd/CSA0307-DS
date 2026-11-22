@@ -1,0 +1,249 @@
+/* Task 6 - Order processing for a food-delivery platform
+   hash table (chaining, by order id) + binary min-heap (most overdue order first)
+   + stable merge sort (hourly report: restaurant, then amount)                  */
+#define _POSIX_C_SOURCE 199309L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+typedef struct {
+    unsigned id;          /* order id                                   */
+    int restaurant;       /* restaurant number                          */
+    int amount;           /* order amount                               */
+    int promised;         /* promised delivery time (minutes)           */
+    int heap_pos;         /* position of this order in the heap, -1 if none */
+    int status;           /* 0 waiting, 1 assigned, 2 cancelled         */
+    int next;             /* next order in the same hash chain, -1 end  */
+} Order;
+
+static Order *pool;       /* all orders, in order of arrival            */
+static int count = 0;
+
+/* ---------------- hash table ---------------- */
+static int *head, tbits = 14, tsize, rehashes = 0;
+
+static unsigned hash(unsigned id) { return (id * 2654435769u) >> (32 - tbits); }
+
+static void table_init(void)
+{
+    tsize = 1 << tbits;
+    head = malloc((size_t)tsize * sizeof(int));
+    for (int i = 0; i < tsize; i++) head[i] = -1;
+}
+static void rehash(void)                   /* double the table, relink every order */
+{
+    free(head);
+    tbits++; rehashes++;
+    table_init();
+    for (int i = 0; i < count; i++) {
+        unsigned b = hash(pool[i].id);
+        pool[i].next = head[b];
+        head[b] = i;
+    }
+}
+static int find(unsigned id)               /* index in pool, or -1 */
+{
+    for (int i = head[hash(id)]; i != -1; i = pool[i].next)
+        if (pool[i].id == id) return i;
+    return -1;
+}
+
+/* ---------------- heap of pool indexes ---------------- */
+static int *heap, hsize = 0;
+
+static int earlier(int x, int y)           /* x must be served before y */
+{
+    if (pool[x].promised != pool[y].promised) return pool[x].promised < pool[y].promised;
+    return x < y;                          /* equal deadline: arrived first */
+}
+static void hset(int pos, int idx) { heap[pos] = idx; pool[idx].heap_pos = pos; }
+static void sift_up(int i)
+{
+    int x = heap[i];
+    while (i > 0 && earlier(x, heap[(i - 1) / 2])) { hset(i, heap[(i - 1) / 2]); i = (i - 1) / 2; }
+    hset(i, x);
+}
+static void sift_down(int i)
+{
+    int x = heap[i];
+    for (;;) {
+        int l = 2 * i + 1, r = l + 1, b = -1;
+        if (l < hsize && earlier(heap[l], x)) b = l;
+        if (r < hsize && earlier(heap[r], (b == -1) ? x : heap[b])) b = r;
+        if (b == -1) break;
+        hset(i, heap[b]); i = b;
+    }
+    hset(i, x);
+}
+static void heap_remove_at(int pos)        /* used by assign (pos 0) and cancel */
+{
+    int idx = heap[pos];
+    hsize--;
+    if (pos != hsize) {
+        int moved = heap[hsize];             /* last order fills the gap */
+        hset(pos, moved);
+        sift_up(pos);
+        sift_down(pool[moved].heap_pos);
+    }
+    pool[idx].heap_pos = -1;
+}
+
+/* ---------------- the four operations ---------------- */
+static void place(unsigned id, int rest, int amount, int promised)       /* O(log n) */
+{
+    if (count + 1 > (int)(0.75 * tsize)) rehash();
+    int i = count++;
+    pool[i] = (Order){id, rest, amount, promised, -1, 0, -1};
+    unsigned b = hash(id);
+    pool[i].next = head[b]; head[b] = i;
+    hset(hsize++, i); sift_up(hsize - 1);
+}
+static int assign(void)                                                   /* O(log n) */
+{
+    if (hsize == 0) return -1;
+    int idx = heap[0];
+    heap_remove_at(0);
+    pool[idx].status = 1;
+    return idx;
+}
+static int cancel(unsigned id)                                            /* O(log n) */
+{
+    int i = find(id);
+    if (i < 0 || pool[i].status != 0) return 0;
+    heap_remove_at(pool[i].heap_pos);
+    pool[i].status = 2;
+    return 1;
+}
+
+/* stable merge sort of indexes: restaurant, then amount */
+static int rep_le(int x, int y)
+{
+    if (pool[x].restaurant != pool[y].restaurant) return pool[x].restaurant < pool[y].restaurant;
+    return pool[x].amount <= pool[y].amount;
+}
+static void msort(int a[], int t[], int lo, int hi)
+{
+    if (lo >= hi) return;
+    int mid = lo + (hi - lo) / 2;
+    msort(a, t, lo, mid); msort(a, t, mid + 1, hi);
+    int i = lo, j = mid + 1, k = lo;
+    while (i <= mid && j <= hi) t[k++] = rep_le(a[i], a[j]) ? a[i++] : a[j++];
+    while (i <= mid) t[k++] = a[i++];
+    while (j <= hi)  t[k++] = a[j++];
+    memcpy(a + lo, t + lo, (size_t)(hi - lo + 1) * sizeof(int));
+}
+static int report(int out[])                                              /* O(n log n) */
+{
+    int m = 0, *t = malloc((size_t)count * sizeof(int));
+    for (int i = 0; i < count; i++) if (pool[i].status != 2) out[m++] = i;
+    msort(out, t, 0, m - 1);
+    free(t);
+    return m;
+}
+
+/* ---------------- demonstration ---------------- */
+static int cmpi(const void *a, const void *b) { return *(const int *)a - *(const int *)b; }
+
+static double now(void)
+{
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
+}
+
+static void run(int n)
+{
+    pool = malloc((size_t)n * sizeof(Order));
+    heap = malloc((size_t)n * sizeof(int));
+    int *rep = malloc((size_t)n * sizeof(int));
+    unsigned *ids = malloc((size_t)n * sizeof(unsigned));
+    count = hsize = rehashes = 0; tbits = 14; table_init();
+    srand(2026);
+
+    printf("\n===== %d orders =====\n", n);
+    double t0 = now();
+    for (int i = 0; i < n; i++) {
+        unsigned id;
+        do { id = ((unsigned)rand() << 8) ^ (unsigned)rand(); id = id % 900000000u + 100000000u; }
+        while (find(id) != -1);
+        ids[i] = id;
+        int arrival = i * 60 / n;
+        place(id, rand() % 200, 100 + rand() % 900, arrival + 20 + rand() % 40);
+    }
+    double tp = now() - t0;
+    printf("place   : %d orders, %.3f ms total, %.2f us each (rehashes: %d, table size %d)\n",
+           n, tp * 1e3, tp * 1e6 / n, rehashes, tsize);
+
+    int longest = 0, used = 0;
+    for (int b = 0; b < tsize; b++) {
+        int len = 0; for (int i = head[b]; i != -1; i = pool[i].next) len++;
+        if (len > longest) longest = len;
+        if (len) used++;
+    }
+    printf("hash    : load factor %.2f, longest chain %d, buckets used %d\n",
+           (double)n / tsize, longest, used);
+
+    t0 = now();
+    int found = 0;
+    for (int i = 0; i < n; i++) if (find(ids[(i * 7919) % n]) != -1) found++;
+    double tf = now() - t0;
+    printf("find    : %d look-ups, %d found, %.2f us each\n", n, found, tf * 1e6 / n);
+
+    t0 = now();
+    int cancelled = 0;
+    for (int i = 0; i < n; i += 10) cancelled += cancel(ids[i]);
+    double tc = now() - t0;
+    printf("cancel  : %d cancelled, %.2f us each\n", cancelled, tc * 1e6 / cancelled);
+
+    t0 = now();
+    int assigned = 0, last = -1, ok = 1;
+    int toassign = hsize / 2;
+    for (int i = 0; i < toassign; i++) {
+        int x = assign();
+        if (x < 0) break;
+        if (pool[x].promised < last) ok = 0;       /* must come out in deadline order */
+        last = pool[x].promised; assigned++;
+    }
+    double ta = now() - t0;
+    printf("assign  : %d assigned, %.2f us each, deadline order correct: %s\n",
+           assigned, ta * 1e6 / assigned, ok ? "yes" : "NO");
+
+    t0 = now();
+    int m = report(rep);
+    double tr = now() - t0;
+    int sorted = 1;
+    for (int i = 1; i < m; i++) {
+        Order *p = &pool[rep[i - 1]], *q = &pool[rep[i]];
+        if (p->restaurant > q->restaurant ||
+            (p->restaurant == q->restaurant && p->amount > q->amount) ||
+            (p->restaurant == q->restaurant && p->amount == q->amount && rep[i - 1] > rep[i])) sorted = 0;
+    }
+    printf("report  : %d orders sorted, %.3f ms, restaurant+amount+arrival order correct: %s\n",
+           m, tr * 1e3, sorted ? "yes" : "NO");
+
+    /* ---- alternative: one plain array, re-sorted before every assignment ---- */
+    int *alt = malloc((size_t)n * sizeof(int));
+    for (int i = 0; i < n; i++) alt[i] = pool[i].promised;
+    t0 = now();
+    qsort(alt, (size_t)n, sizeof(int), cmpi);
+    double tsort = now() - t0;
+    t0 = now();
+    long hits = 0;
+    for (int i = 0; i < 200; i++) {                      /* 200 linear look-ups by id */
+        unsigned want = ids[(i * 7919) % n];
+        for (int j = 0; j < n; j++) if (pool[j].id == want) { hits++; break; }
+    }
+    double tlin = now() - t0;
+    printf("array   : one re-sort = %.3f ms  -> %d assignments would need about %.1f s\n",
+           tsort * 1e3, n / 2, tsort * (n / 2));
+    printf("array   : linear look-up by id = %.2f us each (%ld found)\n", tlin * 1e6 / 200, hits);
+
+    free(pool); free(heap); free(rep); free(ids); free(head); free(alt);
+}
+
+int main(void)
+{
+    run(50000);
+    run(100000);
+    return 0;
+}
