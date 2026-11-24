@@ -1,0 +1,43 @@
+#include <stdio.h>
+#include <limits.h>
+#include <math.h>
+#define H 20
+static unsigned long long s = 12345;
+static int rnd(int m){ s = s * 6364136223846793005ULL + 1442695040888963407ULL; return (int)((s >> 33) % m); }
+int x[H], y[H], c[H][H];
+int prim(int verbose){
+  int key[H], parent[H], in[H] = {0}, total = 0, used = 0;
+  for (int v = 0; v < H; v++){ key[v] = INT_MAX; parent[v] = -1; }
+  key[0] = 0;
+  for (int k = 0; k < H; k++){
+    int u = -1;
+    for (int v = 0; v < H; v++) if (!in[v] && key[v] != INT_MAX && (u == -1 || key[v] < key[u])) u = v;
+    if (u == -1){ printf("  graph is disconnected: only %d hubs reached\n", used); return -1; }
+    in[u] = 1; total += key[u]; used++;
+    for (int v = 0; v < H; v++) if (!in[v] && c[u][v] > 0 && c[u][v] < key[v]){ key[v] = c[u][v]; parent[v] = u; }
+  }
+  if (verbose){ for (int v = 1; v < H; v++) printf("  H%02d-H%02d (%d)\n", parent[v], v, c[parent[v]][v]); }
+  printf("  total cable cost = %d lakh\n", total);
+  return total;
+}
+int main(void){
+  for (int i = 0; i < H; i++){ x[i] = rnd(40); y[i] = rnd(40); }
+  for (int i = 0; i < H; i++) for (int j = 0; j < H; j++){
+    double d = sqrt((double)((x[i]-x[j])*(x[i]-x[j]) + (y[i]-y[j])*(y[i]-y[j])));
+    c[i][j] = (i != j && d <= 20.0) ? (int)(d * 2 + 0.5) + 1 : 0;
+  }
+  printf("Cable plan with all routes available:\n");
+  int base = prim(1);
+  int key[H], parent[H], in[H] = {0};
+  for (int v = 0; v < H; v++){ key[v] = INT_MAX; parent[v] = -1; }
+  key[0] = 0;
+  for (int k = 0; k < H; k++){ int u = -1; for (int v = 0; v < H; v++) if (!in[v] && (u == -1 || key[v] < key[u])) u = v; in[u] = 1;
+    for (int v = 0; v < H; v++) if (!in[v] && c[u][v] > 0 && c[u][v] < key[v]){ key[v] = c[u][v]; parent[v] = u; } }
+  int bv = 1; for (int v = 1; v < H; v++) if (c[parent[v]][v] > c[parent[bv]][bv]) bv = v;
+  int a = parent[bv], b = bv, old = c[a][b];
+  printf("\nRoute H%02d-H%02d (cost %d) becomes unavailable. New plan:\n", a, b, old);
+  c[a][b] = c[b][a] = 0;
+  int now2 = prim(1);
+  printf("\nChange in total cost: %+d lakh\n", now2 - base);
+  return 0;
+}
