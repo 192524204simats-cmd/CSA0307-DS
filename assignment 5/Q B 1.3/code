@@ -1,0 +1,45 @@
+#include <stdio.h>
+#include <stdlib.h>
+#define N 10
+#define M 11
+int ea[M] = {0,1,2,3,3,4,5,6,7,8,2};
+int eb[M] = {1,2,3,0,4,5,6,7,8,9,6};
+int closed[M];
+int *start, *adj, seen[N];
+void build(void){
+  int deg[N] = {0};
+  for (int i = 0; i < M; i++) if (!closed[i]) { deg[ea[i]]++; deg[eb[i]]++; }
+  start = calloc(N + 1, sizeof(int));
+  for (int v = 0; v < N; v++) start[v+1] = start[v] + deg[v];
+  adj = malloc((start[N] + 1) * sizeof(int));
+  int fill[N]; for (int v = 0; v < N; v++) fill[v] = start[v];
+  for (int i = 0; i < M; i++) if (!closed[i]) { adj[fill[ea[i]]++] = eb[i]; adj[fill[eb[i]]++] = ea[i]; }
+}
+int has_cycle;
+void dfs(int u, int p){
+  seen[u] = 1;
+  for (int i = start[u]; i < start[u+1]; i++){
+    int w = adj[i];
+    if (!seen[w]) dfs(w, u);
+    else if (w != p) has_cycle = 1;
+  }
+}
+void report(const char *msg){
+  build();
+  for (int v = 0; v < N; v++) seen[v] = 0;
+  has_cycle = 0;
+  int comps = 0;
+  for (int v = 0; v < N; v++) if (!seen[v]) { comps++; dfs(v, -1); }
+  printf("%s: regions = %d, cycle = %s\n", msg, comps, has_cycle ? "yes" : "no");
+  free(start); free(adj);
+}
+int main(void){
+  report("All roads open           ");
+  closed[4] = 1; closed[10] = 1;
+  report("Roads 3-4 and 2-6 flooded ");
+  closed[3] = 1;
+  report("Road 3-0 also flooded     ");
+  closed[7] = 1;
+  report("Road 6-7 also flooded     ");
+  return 0;
+}
