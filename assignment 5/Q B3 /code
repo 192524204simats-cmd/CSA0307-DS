@@ -1,0 +1,51 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define N 200
+typedef unsigned long long u64;
+static u64 s;
+static unsigned rnd(void){ s ^= s << 13; s ^= s >> 7; s ^= s << 17; return (unsigned)(s >> 11); }
+char blocked[N][N];
+int dist[N*N], closedn[N*N];
+int *hf, *hn, hs;
+void push(int f, int n){ int i = hs++; while (i > 0 && hf[(i-1)/2] > f){ hf[i] = hf[(i-1)/2]; hn[i] = hn[(i-1)/2]; i = (i-1)/2; } hf[i] = f; hn[i] = n; }
+void pop(int *f, int *n){ *f = hf[0]; *n = hn[0]; hs--; int lf = hf[hs], ln = hn[hs], i = 0;
+  while (2*i+1 < hs){ int c = 2*i+1; if (c+1 < hs && hf[c+1] < hf[c]) c++; if (hf[c] >= lf) break; hf[i] = hf[c]; hn[i] = hn[c]; i = c; }
+  hf[i] = lf; hn[i] = ln; }
+int search(int useH, int *expanded){
+  int goal = (N-1)*N + (N-1);
+  for (int i = 0; i < N*N; i++){ dist[i] = 1<<30; closedn[i] = 0; }
+  hs = 0; dist[0] = 0; push(0, 0); *expanded = 0;
+  int dx[4] = {1,-1,0,0}, dy[4] = {0,0,1,-1};
+  while (hs > 0){
+    int f, u; pop(&f, &u);
+    if (closedn[u]) continue;
+    closedn[u] = 1; (*expanded)++;
+    if (u == goal) return dist[u];
+    int ux = u / N, uy = u % N;
+    for (int k = 0; k < 4; k++){
+      int vx = ux + dx[k], vy = uy + dy[k];
+      if (vx < 0 || vy < 0 || vx >= N || vy >= N || blocked[vx][vy]) continue;
+      int v = vx*N + vy, nd = dist[u] + 1;
+      if (nd < dist[v]){ dist[v] = nd; int h = useH ? (N-1-vx) + (N-1-vy) : 0; push(nd + h, v); }
+    }
+  }
+  return -1;
+}
+int main(void){
+  hf = malloc(4 * N * N * sizeof(int)); hn = malloc(4 * N * N * sizeof(int));
+  int pct[4] = {0, 10, 20, 30};
+  for (int t = 0; t < 4; t++){
+    s = 88172645463325252ULL + t;
+    for (int i = 0; i < N; i++) for (int j = 0; j < N; j++) blocked[i][j] = (int)(rnd() % 100) < pct[t];
+    blocked[0][0] = blocked[N-1][N-1] = 0;
+    int e1, e2, d1 = search(0, &e1), d2 = search(1, &e2);
+    printf("obstacles %2d%%: Dijkstra length=%d explored=%d | A* length=%d explored=%d | saved %.1f%%\n", pct[t], d1, e1, d2, e2, d1 > 0 ? 100.0 * (e1 - e2) / e1 : 0.0);
+  }
+  memset(blocked, 0, sizeof blocked);
+  for (int i = 0; i < N - 1; i++) blocked[i][N/2] = 1;
+  int e1, e2, d1 = search(0, &e1), d2 = search(1, &e2);
+  printf("long wall      : Dijkstra length=%d explored=%d | A* length=%d explored=%d | saved %.1f%%\n", d1, e1, d2, e2, 100.0 * (e1 - e2) / e1);
+  free(hf); free(hn);
+  return 0;
+}
